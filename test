@@ -1,1 +1,65 @@
-docker run -it --rm --name n8n -p 5678:5678 -v n8n_data:/home/node/.n8n docker.n8n.io/n8nio/n8n
+import os
+import requests
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from duckduckgo_search import DDGS
+
+app = FastAPI()
+
+# This lets your React frontend talk to this Repl
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/search")
+def nexus_search(query: str):
+    # 1. Search the web for FREE using DuckDuckGo
+    search_results = []
+    with DDGS() as ddgs:
+        # We grab the top 4 results
+        results = ddgs.text(query, max_results=4)
+        for r in results:
+            search_results.append({
+                "title": r['title'],
+                "link": r['href'],
+                "snippet": r['body']
+            })
+
+    # 2. Prepare the data for the AI
+    context = ""
+    for res in search_results:
+        context += f"Source: {res['title']}\nContent: {res['snippet']}\nLink: {res['link']}\n\n"
+
+    # 3. Call OpenRouter using a FREE model
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    
+    response = requests.post(
+        url="https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "google/gemini-2.0-flash-lite-preview-02-05:free",
+            "messages": [
+                {"role": "system", "content": "Summarize the search data to answer the user's query. Be concise and use bullet points."},
+                {"role": "user", "content": f"Search Data:\n{context}\n\nUser Question: {query}"}
+            ]
+        }
+    )
+
+    ai_answer = response.json()['choices'][0]['message']['content']
+
+    # 4. Send everything back to your website
+    return {
+        "text": ai_answer,
+        "sources": [{"title": r['title'], "uri": r['link']} for r in search_results]
+    }
+
+# Run the server
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
