@@ -1,6 +1,13 @@
 services:
   - type: web
-    name: my-search-api
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    name: my-searxng-instance
+    runtime: docker
+    repo: https://github.com/searxng/searxng # Pulls official code
+    plan: free # Change to 'starter' if you need it to never sleep
+    envVars:
+      - key: SEARXNG_SETTINGS_PATH
+        value: /etc/searxng/settings.yml
+      - key: PORT
+        value: 8080
+    dockerContext: .
+    dockerfilePath: Dockerfile
