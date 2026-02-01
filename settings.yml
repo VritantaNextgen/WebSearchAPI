@@ -1,0 +1,8 @@
+use_default_settings: True
+search:
+  formats:
+    - html
+    - json  # This allows n8n to read the data
+server:
+  secret_key: "change_this_to_anything_random" # Just a random string
+  limiter: False # Recommended for private API use
