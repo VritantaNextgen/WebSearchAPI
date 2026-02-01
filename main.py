@@ -1,66 +1,58 @@
 import logging
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query
 from duckduckgo_search import DDGS
 from itertools import islice
 
-# Setup logging to see errors in Render logs
+# Setup logging to debug Render's connectivity
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Resilient Search API")
+app = FastAPI(title="Verified Search API")
 
-def fetch_results(query, max_results=10):
+def get_results(keywords, max_results=10):
     """
-    Tries multiple DuckDuckGo backends to ensure results are returned.
+    Attempts to fetch results using different backends if the primary one fails.
     """
-    # Order of backends to try: 'lite' and 'html' are usually most stable for servers
+    # 2026 Strategy: 'lite' is the most stable for cloud hosting
     backends = ["lite", "html", "api"]
     
-    for backend in backends:
+    for b in backends:
         try:
-            logger.info(f"Attempting search with backend: {backend}")
+            logger.info(f"Trying backend: {b}")
             with DDGS() as ddgs:
-                # We use islice to limit results manually if needed
-                search_gen = ddgs.text(
-                    query, 
-                    region='wt-wt', 
-                    safesearch='moderate', 
-                    backend=backend
-                )
-                results = list(islice(search_gen, max_results))
+                # Use the 'lite' or 'html' backends which are less likely to trigger bot detection
+                results = list(islice(ddgs.text(
+                    keywords, 
+                    region="wt-wt", 
+                    safesearch="moderate", 
+                    backend=b
+                ), max_results))
                 
                 if results:
-                    logger.info(f"Success with {backend} backend")
                     return results
         except Exception as e:
-            logger.warning(f"Backend {backend} failed: {e}")
-            continue # Try the next backend
-            
+            logger.error(f"Backend {b} failed: {e}")
+            continue
     return []
 
 @app.get("/")
-def health_check():
-    return {"status": "online", "usage": "/search?q=your+query"}
+def home():
+    return {"status": "active", "endpoint": "/search?q=query"}
 
 @app.get("/search")
 async def search(q: str = Query(..., min_length=1)):
-    results = fetch_results(q)
+    data = get_results(q)
     
-    if not results:
-        # If all backends fail, return a 404 or a custom message
+    if not data:
         return {
             "query": q,
-            "status": "no_results_found",
-            "message": "Try a different query or wait a moment. The search provider might be rate-limiting.",
+            "error": "Blocked by provider",
+            "suggestion": "Render IP might be rate-limited. Try again in 1 minute.",
             "results": []
         }
-        
+    
     return {
         "query": q,
-        "count": len(results),
-        "results": results
+        "count": len(data),
+        "results": data
     }
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
